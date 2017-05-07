@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Planet Coverage </title>
+  <style>
+
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="tooltip"></div>
+  
+  <script src="http://d3js.org/d3.v3.min.js"></script>
+  <script src="http://d3js.org/topojson.v1.min.js"></script>
+
+  <script>
+  
+  // Sets up the SVG for the map
+  var height = 600;
+  var width = 900;
+  var coverage = void 0; 
+
+  var svg = d3.select("#map")
+      .append("svg")
+      .attr("width", width)
+      .attr("height", height);
+  
+  var map = svg.append('g')
+  			   .attr('class', 'satellites');
+
+  // Sets up projection 
+  projection = d3.geo.mercator();
+  var path = d3.geo.path().projection(projection);
+
+  // Loads the scene boundaries  
+  d3.json('test_data.json', function(data) { 
+    
+    var scenes = data
+
+    // Scales and translates projection
+    //b, s, t;
+    projection.scale(1).translate([0, 0]);
+    var b, s, t;
+    var b = path.bounds(scenes);
+    var s = .95 / Math.max((b[1][0] - b[0][0]) / width, (b[1][1] - b[0][1]) / height);
+    var t = [(width - s * (b[1][0] + b[0][0])) / 2, (height - s * (b[1][1] + b[0][1])) / 2];
+    projection.scale(s).translate(t);
+   
+    // Draws out the distric boundaries
+    images = map.selectAll('path').data(scenes.features);
+    console.log(scenes);
+
+    images.enter()
+       .append('path')
+       .attr('d', path)
+       .attr('id', function(d, i) {return "s" + i;} )
+       .transition()
+       .delay(function(d,i) {return i * 1000;} ) 
+       .duration(1000)
+       .attr('fill', 'red');
+
+    // Remove elements (not really necessary)
+    images.exit().remove();
+
+  });
+  
+  </script>
+</body>
+</html>
+
+
