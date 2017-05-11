@@ -35,38 +35,53 @@
   var path = d3.geo.path().projection(projection);
 
   // Loads the scene boundaries  
-  d3.json('test_data.json', function(data) { 
+  d3.json('results_new.json', function(data) { 
     
-    var scenes = data
+    var scenes = data;
 
-    // Scales and translates projection
-    //b, s, t;
-    projection.scale(1).translate([0, 0]);
-    var b, s, t;
-    var b = path.bounds(scenes);
-    var s = .95 / Math.max((b[1][0] - b[0][0]) / width, (b[1][1] - b[0][1]) / height);
-    var t = [(width - s * (b[1][0] + b[0][0])) / 2, (height - s * (b[1][1] + b[0][1])) / 2];
-    projection.scale(s).translate(t);
-   
-    // Draws out the distric boundaries
-    images = map.selectAll('path').data(scenes.features);
-    console.log(scenes);
+    // Adds the CA state boundary 
+    d3.json("ca.geojson", function(error, data) {
+      if (error) throw error;
+      ca = data;
+      console.log(ca);      
 
-    images.enter()
-       .append('path')
-       .attr('d', path)
-       .attr('id', function(d, i) {return "s" + i;} )
-       .attr('fill-opacity', 0)
-       .sort(function(a,b) {if (a.properties.acquired > b.properties.acquired) { return 1;} else { return -1}} )
-       .transition()
-       .delay(function(d,i) {return i * 500;} ) 
-       .duration(1000)
-       .attr('fill-opacity', 1)
-       .attr('fill', 'red');
+      // Scales and translates projection
+      //b, s, t;
+      projection.scale(1).translate([0, 0]);
+      var b, s, t;
+      var b = path.bounds(ca);
+      var s = .95 / Math.max((b[1][0] - b[0][0]) / width, (b[1][1] - b[0][1]) / height);
+      var t = [(width - s * (b[1][0] + b[0][0])) / 2, (height - s * (b[1][1] + b[0][1])) / 2];
+      projection.scale(s).translate(t);
 
-    // Remove elements (not really necessary)
-    images.exit().remove();
+      svg.append("g")
+          .attr("class", "boundaries")
+        .selectAll("path")
+        .data(ca)
+        .enter().append("path")
+          .attr("d", path);    
 
+     
+      // Draws out the distric boundaries
+      images = map.selectAll('path').data(scenes.features);
+      console.log(scenes);
+
+      images.enter()
+         .append('path')
+         .attr('d', path)
+         .attr('id', function(d, i) {return "s" + i;} )
+         .attr('fill-opacity', 0)
+         .sort(function(a,b) {if (a.properties.acquired > b.properties.acquired) { return 1;} else { return -1}} )
+         .transition()
+         .delay(function(d,i) {return i * 500;} ) 
+         .duration(1000)
+         .attr('fill-opacity', 1)
+         .attr('fill', 'red');
+
+      // Remove elements (not really necessary)
+      images.exit().remove();
+
+    });
   });
   
   </script>
