@@ -14,6 +14,9 @@
   
   <script src="http://d3js.org/d3.v3.min.js"></script>
   <script src="http://d3js.org/topojson.v1.min.js"></script>
+  <script src="/satellite.min.js"></script>
+ 
+
 
   <script>
   
@@ -28,7 +31,7 @@
       .attr("height", height);
   
   var map = svg.append('g')
-  			   .attr('class', 'satellites');
+  			   .attr('class', 'images');
 
   // Sets up projection 
   projection = d3.geo.mercator();
@@ -37,7 +40,7 @@
   // Loads the scene boundaries  
   d3.json('results_new.json', function(data) { 
     
-    var scenes = data;
+    scenes = data;
 
     // Adds the CA state boundary 
     d3.json("ca.geojson", function(error, data) {
@@ -73,7 +76,7 @@
          .attr('fill-opacity', 0)
          .sort(function(a,b) {if (a.properties.acquired > b.properties.acquired) { return 1;} else { return -1}} )
          .transition()
-         .delay(function(d,i) {return i * 500;} ) 
+         .delay(function(d,i) {return 500;} ) 
          .duration(1000)
          .attr('fill-opacity', 1)
          .attr('fill', 'red');
@@ -81,9 +84,103 @@
       // Remove elements (not really necessary)
       images.exit().remove();
 
+
+      d3.text("landsat8.txt", function(error2, data) {
+        if (error2) throw error2;
+
+        // Preps the Landsat TLE data
+        var stations = [];
+        var lines = data.split("\n");
+        lines.forEach(function(line) {
+          if (line.length == 0) return;
+
+          if (line[0] == "1") {
+            var obj = stations[stations.length-1];
+            obj.tle1 = line;
+            return; 
+          }
+
+          if (line[0] == "2") {
+            var obj = stations[stations.length-1];
+            obj.tle2 = line;
+            return; 
+          }
+
+          stations.push({
+            name: line.trim()
+          });
+
+          console.log(lines);
+
+        });
+
+        // Gives us a default start date of first satellite pass 
+        var time_1 = new Date(d3.min(scenes.features.map(function(d) { return d.properties.acquired })));
+        
+        // Create element that we'll modify to show moving satellite
+        landsat = svg.append('g')
+                        .attr('class', 'satellite')
+                     .append('circle')
+                        .attr('id', 'landsat')
+                        .attr('r', 4)
+                        .attr('fill', 'black');
+
+
+        d3.timer(function(elapsed) {
+          var interval = 300;
+          time_1 = new Date(time_1.getTime() + interval);
+          console.log(time_1);
+  
+          stations.forEach(function(d) {
+            plotsat(d, time_1);
+            });
+        });
+
+
+      });
+
     });
   });
   
+ // Function to update the satellite 
+  function plotsat(station, time) {
+    var satrec = satellite.twoline2satrec(station.tle1, station.tle2);
+
+    // Find position from TLE and input time
+    var pos_vel = satellite.propagate(
+        satrec,
+        time.getUTCFullYear(),
+        time.getUTCMonth() + 1, // Requires months in range 1-12.
+        time.getUTCDate(),
+        time.getUTCHours(),
+        time.getUTCMinutes(),
+        time.getUTCSeconds()
+    );
+
+    // Find the sidereal time (i.e. the rotational position of the earth)
+    var gmst = satellite.gstimeFromDate(
+        time.getUTCFullYear(),
+        time.getUTCMonth() + 1, // Requires months in range 1-12.
+        time.getUTCDate(),
+        time.getUTCHours(),
+        time.getUTCMinutes(),
+        time.getUTCSeconds()
+    );
+
+    // Pull out position and covert into ground coordinates in long/lat format
+    var pos_eci = pos_vel.position,
+        vel_eci = pos_vel.velocity;
+    var pos = satellite.eciToGeodetic(pos_eci, gmst)
+    var xy = projection([pos.longitude*180/Math.PI, pos.latitude*180/Math.PI]);
+    landsat.attr('cx',  xy[0])
+    landsat.attr('cy',  xy[1])
+
+    if ((xy[0] < 0) || (xy[0] > width) || (xy[1] < 0) || (xy[1] > height)) {
+      time_1 = new Date(scenes.features[Math.floor(Math.random() * (scenes.features.length - 1))].properties.acquired );
+      console.log("made it!");
+    }
+  };
+
   </script>
 </body>
 </html>
