@@ -15,9 +15,12 @@ ca_geom = shape(geojson_geometry)
 
 for feat in features:
   geom = shape(feat['geometry'])
+  feat['properties']['centroid_x'] = geom.centroid.x
+  feat['properties']['centroid_y'] = geom.centroid.y
   geom = geom.intersection(ca_geom)
   feat['geometry'] = mapping(geom)
 
+
 # Write results to a file 
 with open('results_new.json', 'w') as f:
-  f.write(json.dumps(result))
+  f.write(json.dumps(result, indent = 4))

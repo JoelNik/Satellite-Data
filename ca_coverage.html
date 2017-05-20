@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Planet Coverage </title>
+  <title>Satellite Coverage </title>
   <style>
 
   </style>
@@ -14,6 +14,7 @@
   
   <script src="http://d3js.org/d3.v3.min.js"></script>
   <script src="http://d3js.org/topojson.v1.min.js"></script>
+  <script src="http://d3js.org/queue.v1.min.js"></script>
   <script src="/satellite.min.js"></script>
  
 
@@ -29,120 +30,181 @@
       .append("svg")
       .attr("width", width)
       .attr("height", height);
-  
-  var map = svg.append('g')
-  			   .attr('class', 'images');
+
 
   // Sets up projection 
   projection = d3.geo.mercator();
   var path = d3.geo.path().projection(projection);
 
-  // Loads the scene boundaries  
-  d3.json('results_new.json', function(data) { 
+  // Loads all the data files up-front
+  queue()
+  .defer(d3.json, 'results_new.json')
+  .defer(d3.json, 'ca.geojson')
+  .defer(d3.text, 'landsat8.txt')
+  .await(ready);
+
+
+  // Initializes the actual visualization 
+  function ready(error, image_data, ca_data, sat_data) {
+
+    console.log(error);
+    // Draw out the CA boundary first
+    var california = [];
+    california.push(ca_data)
+
+    // Scales and translates projection on the CA boundaries
+    projection.scale(1).translate([0, 0]);
+    var b, s, t;
+    var b = path.bounds(california[0]);
+    var s = .95 / Math.max((b[1][0] - b[0][0]) / width, (b[1][1] - b[0][1]) / height);
+    var t = [(width - s * (b[1][0] + b[0][0])) / 2, (height - s * (b[1][1] + b[0][1])) / 2];
+    projection.scale(s).translate(t);
+
+    // Adds path elements for the CA boundary 
+    svg.append('g')
+        .attr('class', 'california')
+      .selectAll('path')
+      .data(california)
+      .enter()
+      .append('path')
+        .attr('d', path)
+        .attr('fill', 'none')
+        .attr('stroke', "black")
+        .attr('stroke-wdith', '2');    
+
+    // Draws out the image footprints - placeholders for now, no fill
+    var images = image_data.features;
+    var image_times = images.map(function(d) { return new Date(d.properties.acquired) });
+
+
+    svg.append('g')
+          .attr('class', 'images')
+        .selectAll('path')
+        .data(images)
+        .enter()
+        .append('path')
+          .attr('d', path)
+          .attr('id', function(d, i) {return "s" + i;} )
+          .attr('fill-opacity', 0)
+          .attr('pos_x', function(d) { return projection([d.properties.centroid_x, d.properties.centroid_y])[0]; })
+          .attr('pos_y', function(d) { return projection([d.properties.centroid_x, d.properties.centroid_y])[1]; })
+          .attr('time', function(d) { return d.properties.acquired; });
+
+          
+
+    // Kicks off satellite animation
+    var satellites = parse_tle(sat_data);
+    console.log(satellites);
+
+    // Creates a svg elements for each satellite.  Placeholder until we process particular satellite pass. 
+    landsat = svg.append('g')
+                    .attr('class', 'satellite')
+                 .selectAll('circle')
+                 .data(satellites)
+                 .enter()
+                 .append('circle')
+                    .attr('id', 'landsat')
+                    .attr('r', 4)
+                    .attr('fill', 'red')
+                    .attr('fill-opacity', 0);
+
+    // Initialization time matching the first image                    
+    time_current = d3.min(image_times);
+
+    // Timer to update the satellite position
+    d3.timer(function(elapsed) {
+      
+      // Need to initialize the time
+      var interval = 300;
+      var time = new Date(time_current.getTime() + interval);
+
+      // Check if pixels are outside of boundary and update position/time
+      xy = plotsat(satellites[0], time)
+      if ((xy[0] < (0 - 4)) || (xy[0] > (width + 4)) || (xy[1] < (0 - 4)) || (xy[1] > (height + 4))) {
+
+        time_current = d3.min(image_times.filter(function(d) { if (d > time_current) { return true; } } ));
+
+        xy = plotsat(satellites[0], time_current);
+
+        while ((xy[0] > 0) && (xy[0] < width) && (xy[1] > 0) && (xy[1] < height)) {
+          time_current = new Date(time_current.getTime() -  interval);
+          xy = plotsat(satellites[0], time_current);
+        }
+
+        time_current = new Date(time_current.getTime() + interval);
+
+      }
+      else {
+        landsat.attr('fill-opacity', 1);
+        landsat.attr('cx', xy[0]);
+        landsat.attr('cy', xy[1]);
+        time_current = time;
+      }
+ 
+      // With new satellite, check the fill of the background 
+      check_image(xy);
+
+    });
+
+  }
+
+
+  // Parses and preps the TLE file
+  function parse_tle(data) {
+
+    var sat_list = [];
+    var lines = data.split("\n");
     
-    scenes = data;
+    // Parses each line of the TLE file, organizes by satellite
+    lines.forEach(function(line) {
+      if (line.length == 0) return;
 
-    // Adds the CA state boundary 
-    d3.json("ca.geojson", function(error, data) {
-      if (error) throw error;
-      ca = data;
-      console.log(ca);      
+      if (line[0] == "1") {
+        var obj = sat_list[sat_list.length-1];
+        obj.tle1 = line;
+        return; 
+      }
 
-      // Scales and translates projection
-      //b, s, t;
-      projection.scale(1).translate([0, 0]);
-      var b, s, t;
-      var b = path.bounds(ca);
-      var s = .95 / Math.max((b[1][0] - b[0][0]) / width, (b[1][1] - b[0][1]) / height);
-      var t = [(width - s * (b[1][0] + b[0][0])) / 2, (height - s * (b[1][1] + b[0][1])) / 2];
-      projection.scale(s).translate(t);
+      if (line[0] == "2") {
+        var obj = sat_list[sat_list.length-1];
+        obj.tle2 = line;
+        return; 
+      }
 
-      svg.append("g")
-          .attr("class", "boundaries")
-        .selectAll("path")
-        .data(ca)
-        .enter().append("path")
-          .attr("d", path);    
-
-     
-      // Draws out the distric boundaries
-      images = map.selectAll('path').data(scenes.features);
-      console.log(scenes);
-
-      images.enter()
-         .append('path')
-         .attr('d', path)
-         .attr('id', function(d, i) {return "s" + i;} )
-         .attr('fill-opacity', 0)
-         .sort(function(a,b) {if (a.properties.acquired > b.properties.acquired) { return 1;} else { return -1}} )
-         .transition()
-         .delay(function(d,i) {return 500;} ) 
-         .duration(1000)
-         .attr('fill-opacity', 1)
-         .attr('fill', 'red');
-
-      // Remove elements (not really necessary)
-      images.exit().remove();
-
-
-      d3.text("landsat8.txt", function(error2, data) {
-        if (error2) throw error2;
-
-        // Preps the Landsat TLE data
-        var stations = [];
-        var lines = data.split("\n");
-        lines.forEach(function(line) {
-          if (line.length == 0) return;
-
-          if (line[0] == "1") {
-            var obj = stations[stations.length-1];
-            obj.tle1 = line;
-            return; 
-          }
-
-          if (line[0] == "2") {
-            var obj = stations[stations.length-1];
-            obj.tle2 = line;
-            return; 
-          }
-
-          stations.push({
-            name: line.trim()
-          });
-
-          console.log(lines);
-
-        });
-
-        // Gives us a default start date of first satellite pass 
-        var time_1 = new Date(d3.min(scenes.features.map(function(d) { return d.properties.acquired })));
-        
-        // Create element that we'll modify to show moving satellite
-        landsat = svg.append('g')
-                        .attr('class', 'satellite')
-                     .append('circle')
-                        .attr('id', 'landsat')
-                        .attr('r', 4)
-                        .attr('fill', 'black');
-
-
-        d3.timer(function(elapsed) {
-          var interval = 300;
-          time_1 = new Date(time_1.getTime() + interval);
-          console.log(time_1);
-  
-          stations.forEach(function(d) {
-            plotsat(d, time_1);
-            });
-        });
-
-
+      // Add a new satellite to the list
+      sat_list.push({
+        name: line.trim()
       });
 
     });
-  });
+
+    return sat_list
+  }
+
+  // Function that perfoms update 
+  function check_image(xy) {
+    var g_images = d3.selectAll('g.images');
+    var images = g_images.selectAll('path');
+    
+    
+    for (n in images[0]) {
+      if (Math.abs(xy[0] - images[0][n].getAttribute('pos_x')) < 15) {
+        if (Math.abs(xy[1] - images[0][n].getAttribute('pos_y')) < 15) {
+          var image_time = new Date(images[0][n].getAttribute('time'))
+          if ( (Math.abs(image_time - time_current) / (1000 * 3600 )) < 6 )
+          d3.select('path#' + 's' + n)
+            .transition()
+            .duration(400)
+            .attr('fill', 'pink')
+            .attr('fill-opacity', 1);
+        }
+      }
+      
+
+    }
+  }
   
- // Function to update the satellite 
+  // Function to update the satellite 
   function plotsat(station, time) {
     var satrec = satellite.twoline2satrec(station.tle1, station.tle2);
 
@@ -172,14 +234,12 @@
         vel_eci = pos_vel.velocity;
     var pos = satellite.eciToGeodetic(pos_eci, gmst)
     var xy = projection([pos.longitude*180/Math.PI, pos.latitude*180/Math.PI]);
-    landsat.attr('cx',  xy[0])
-    landsat.attr('cy',  xy[1])
+    
+    // Return curernt pixel coordinates
+    return xy; 
 
-    if ((xy[0] < 0) || (xy[0] > width) || (xy[1] < 0) || (xy[1] > height)) {
-      time_1 = new Date(scenes.features[Math.floor(Math.random() * (scenes.features.length - 1))].properties.acquired );
-      console.log("made it!");
-    }
-  };
+
+  }
 
   </script>
 </body>
